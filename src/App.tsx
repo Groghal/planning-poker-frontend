@@ -20,10 +20,13 @@ const darkTheme = createTheme({
 });
 
 const App: React.FC = () => {
+  // Use the same base URL as Vite's configuration
+  const basename = '/planning-poker-frontend';
+  
   return (
     <ThemeProvider theme={darkTheme}>
       <CssBaseline />
-      <Router>
+      <Router basename={basename}>
         <Box
           sx={{
             bgcolor: 'background.default',

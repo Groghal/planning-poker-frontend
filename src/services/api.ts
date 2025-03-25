@@ -1,4 +1,9 @@
-import { API_CONFIG, getApiUrl } from '../config';
+import { API_CONFIG } from '../config';
+
+// Helper function to construct API URLs
+const getApiUrl = (endpoint: string): string => {
+  return `${API_CONFIG.BASE_URL}${API_CONFIG.API_BASE_PATH}${endpoint}`;
+};
 
 export const roomApi = {
   fetchRoom: async (roomId: string) => {
