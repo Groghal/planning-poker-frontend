@@ -2,12 +2,18 @@
  * Application-wide configuration
  */
 
+// Get the base path from environment
+const BASE_PATH = '/planning-poker-frontend';
+
 // API configuration
 export const API_CONFIG = {
-  // Base URL for all API calls
-  BASE_URL: 'http://localhost:3222',
+  // Base URL for all API calls (empty because we're using relative URLs with the proxy)
+  BASE_URL: '',
   
-  // Endpoints (relative to BASE_URL)
+  // API base path (relative to the current domain)
+  API_BASE_PATH: `${BASE_PATH}/api`,
+  
+  // Endpoints (relative to BASE_URL + API_BASE_PATH)
   ENDPOINTS: {
     ROOMS: '/rooms',
     JOIN: (roomId: string) => `/rooms/${roomId}/join`,
@@ -19,7 +25,7 @@ export const API_CONFIG = {
   }
 };
 
-// Function to get full API URL
-export const getApiUrl = (endpoint: string): string => {
-  return `${API_CONFIG.BASE_URL}${endpoint}`;
+// Function to get full frontend URL with subpath
+export const getFrontendUrl = (path: string): string => {
+  return `${BASE_PATH}${path}`;
 };

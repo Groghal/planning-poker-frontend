@@ -160,4 +160,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-P.S. this project is fully created by Cursor + Claude with almost 0 human lines of code
+P.S. this project is fully created by Cursor + Claude with almost 0 human lines of code.
