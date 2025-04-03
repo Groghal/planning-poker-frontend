@@ -4,9 +4,9 @@ import { Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button, T
 interface UsernameDialogProps {
   open: boolean;
   username: string;
-  error?: string;
+  error: string | null;
   onClose: () => void;
-  onUsernameChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  setUsername: (newUsername: string) => void;
   onJoin: () => void;
 }
 
@@ -15,13 +15,17 @@ export const UsernameDialog: React.FC<UsernameDialogProps> = ({
   username,
   error,
   onClose,
-  onUsernameChange,
+  setUsername,
   onJoin
 }) => {
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && username.trim()) {
       onJoin();
     }
+  };
+
+  const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setUsername(e.target.value);
   };
 
   return (
@@ -56,10 +60,10 @@ export const UsernameDialog: React.FC<UsernameDialogProps> = ({
           type="text"
           fullWidth
           value={username}
-          onChange={onUsernameChange}
+          onChange={handleUsernameChange}
           onKeyPress={handleKeyPress}
           error={!!error}
-          helperText={error}
+          helperText={error || ''}
           sx={{
             '& .MuiOutlinedInput-root': {
               color: '#ecf0f1',

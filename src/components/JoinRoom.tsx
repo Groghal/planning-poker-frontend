@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, TextField, Box, Typography } from '@mui/material';
+import { Button, TextField, Box, Typography, Paper } from '@mui/material';
+import LoginIcon from '@mui/icons-material/Login';
 
 const JoinRoom: React.FC = () => {
   const [roomId, setRoomId] = useState<string>('');
@@ -13,20 +14,31 @@ const JoinRoom: React.FC = () => {
   };
 
   return (
-    <Box
+    <Paper
+      elevation={4}
       sx={{
-        bgcolor: '#1a1a1a',
+        bgcolor: '#1e2a38',
         color: '#ffffff',
         p: 4,
-        borderRadius: 2
+        borderRadius: 3,
+        border: '1px solid #3498db',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+        transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+        '&:hover': {
+          transform: 'translateY(-5px)',
+          boxShadow: '0 8px 25px rgba(0,0,0,0.4)',
+        }
       }}
     >
       <Typography 
         variant="h5" 
         gutterBottom
         sx={{
-          color: '#ffffff',
-          mb: 3
+          color: '#3498db',
+          mb: 3,
+          fontWeight: 'bold',
+          textAlign: 'center',
+          textShadow: '1px 1px 2px rgba(0,0,0,0.3)'
         }}
       >
         Join a Room
@@ -41,42 +53,50 @@ const JoinRoom: React.FC = () => {
         sx={{
           '& .MuiOutlinedInput-root': {
             '& fieldset': {
-              borderColor: '#333333',
+              borderColor: '#3498db',
             },
             '&:hover fieldset': {
-              borderColor: '#666666',
+              borderColor: '#2980b9',
             },
             '&.Mui-focused fieldset': {
-              borderColor: '#4a90e2',
+              borderColor: '#3498db',
+              borderWidth: '2px',
             },
+            backgroundColor: 'rgba(52, 152, 219, 0.1)',
           },
           '& .MuiInputLabel-root': {
-            color: '#999999',
+            color: '#bdc3c7',
           },
           '& .MuiInputBase-input': {
             color: '#ffffff',
           },
-          mb: 2
+          mb: 3
         }}
       />
       <Button 
         variant="contained"
         onClick={handleJoin}
+        startIcon={<LoginIcon />}
         sx={{
-          bgcolor: '#4a90e2',
+          bgcolor: '#e74c3c',
           color: '#ffffff',
           '&:hover': {
-            bgcolor: '#357abd',
+            bgcolor: '#c0392b',
           },
           px: 4,
           py: 1.5,
           fontSize: '1rem',
-          textTransform: 'none'
+          textTransform: 'none',
+          borderRadius: '30px',
+          boxShadow: '0 4px 10px rgba(231, 76, 60, 0.3)',
+          width: '100%',
+          fontWeight: 'bold',
+          letterSpacing: '0.5px'
         }}
       >
         Join Room
       </Button>
-    </Box>
+    </Paper>
   );
 };
 

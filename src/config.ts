@@ -21,7 +21,8 @@ export const API_CONFIG = {
     REVEAL: (roomId: string) => `/rooms/${roomId}/reveal`,
     RESET: (roomId: string) => `/rooms/${roomId}/reset`,
     ROOM: (roomId: string) => `/rooms/${roomId}`,
-    VOTE_OPTIONS: (roomId: string) => `/rooms/${roomId}/vote-options`
+    VOTE_OPTIONS: (roomId: string) => `/rooms/${roomId}/vote-options`,
+    VERIFY_ADMIN: (roomId: string) => `/rooms/${roomId}/verify-admin`
   }
 };
 

@@ -1,11 +1,30 @@
 // src/features/room/Room.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Container, Typography, Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Box } from '@mui/material';
+import {
+  Container,
+  Typography,
+  Button,
+  TextField,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Paper,
+  Box,
+  CircularProgress,
+  IconButton,
+  Tooltip,
+  Snackbar,
+  Alert
+} from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import LogoutIcon from '@mui/icons-material/Logout';
 import { UserList } from './UserList';
 import { VotingControls } from './VotingControls';
 import useRoom from '../../hooks/useRoom';
+import { useAdmin } from '../../hooks/useAdmin'; // Import the useAdmin hook
 import { roomApi } from '../../services/api';
 import { API_CONFIG } from '../../config';
 import { calculateSummary } from '../../utils/calculateSummary';
@@ -13,6 +32,7 @@ import { VotingSummary } from '../../components/VotingSummary';
 import { UsernameDialog } from '../../components/UsernameDialog';
 import { RoomNotFoundDialog } from '../../components/RoomNotFoundDialog';
 import { DeleteRoomDialog } from '../../components/DeleteRoomDialog';
+import AdminModeDialog from '../../components/AdminModeDialog'; // Import the AdminModeDialog
 import { RoomState } from '../../types/room';
 
 const Room: React.FC = () => {
@@ -20,17 +40,30 @@ const Room: React.FC = () => {
   const navigate = useNavigate();
   const { state, setState, fetchRoomData } = useRoom(roomId || '');
   
+  // Use the admin hook
+  const { 
+    isAdmin, 
+    isLoading: isAdminLoading, 
+    verificationError,
+    verifyAdminPassword, 
+    clearAdmin,
+    checkAdminStatus
+  } = useAdmin(roomId || '');
+
   // State for dialogs
   const [roomDeletedDialog, setRoomDeletedDialog] = useState(false);
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState(false);
   const [isDeletingRoom, setIsDeletingRoom] = useState(false);
   const [deleteRoomError, setDeleteRoomError] = useState<string | null>(null);
   const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [adminModeDialog, setAdminModeDialog] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
+  const [localSelectedVote, setLocalSelectedVote] = useState<string | null>(null);
+  const [roomNotFoundAdminPassword, setRoomNotFoundAdminPassword] = useState<string>('');
+  const [roomNotFoundError, setRoomNotFoundError] = useState<string | null>(null);
 
   // Check for username on component mount and set up polling
   useEffect(() => {
-    let pollingInterval: ReturnType<typeof setInterval> | null = null;
-    
     const checkAndSetUsername = async () => {
       const sessionUsername = sessionStorage.getItem('planning-poker-username');
       const localUsername = localStorage.getItem('planning-poker-username');
@@ -38,7 +71,7 @@ const Room: React.FC = () => {
       try {
         // Fetch current room data to check users
         const roomData = await roomApi.fetchRoom(roomId || '');
-        const existingUsers = Object.values(roomData.users || {}).map((user: any) => user.username);
+        const existingUsers = Object.keys(roomData.votes || {});
         
         if (!sessionUsername) {
           // If we have a local username, use it but still show dialog for confirmation
@@ -73,7 +106,6 @@ const Room: React.FC = () => {
           }
         }
       } catch (error) {
-        console.error('Error checking room users:', error);
         // If we can't fetch room data, default to showing the dialog
         setState(prevState => ({ 
           ...prevState, 
@@ -89,271 +121,336 @@ const Room: React.FC = () => {
       voteOptionsInput: '0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, ?'
     }));
     
-    // Check username and setup polling
+    // Initialize room: check username and fetch initial data
     const initializeRoom = async () => {
-      // Check username immediately
       await checkAndSetUsername();
-      
-      // Then attempt to fetch room data
       try {
-        await fetchRoomData();
-        console.log("Room found, checking for username");
-        
-        // Fetch vote options for the room
+        await fetchRoomData(); // Initial fetch
+        // Fetch vote options only once on init
         try {
           const voteOptions = await roomApi.getVoteOptions(roomId || '');
-          console.log("Fetched vote options:", voteOptions);
-          setState(prevState => ({
-            ...prevState,
-            voteOptions
-          }));
+          setState(prevState => ({ ...prevState, voteOptions }));
         } catch (error) {
-          console.error('Failed to fetch vote options:', error);
           const defaultOptions = ['0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89', '?'];
-          setState(prevState => ({
-            ...prevState,
-            voteOptions: defaultOptions
-          }));
+          setState(prevState => ({ ...prevState, voteOptions: defaultOptions }));
         }
-        
-        // Start polling for room data updates
-        pollingInterval = setInterval(() => {
-          const sessionUsername = sessionStorage.getItem('planning-poker-username');
-          if (sessionUsername) {
-            console.log("Polling for room updates...");
-            fetchRoomData()
-              .then(() => console.log("Room data refreshed via polling"))
-              .catch(err => console.error("Poll refresh error:", err));
-          }
-        }, 3000);
       } catch (error) {
-        console.error('Error fetching room:', error);
-        setState(prevState => ({ 
-          ...prevState, 
-          roomNotFound: true 
-        }));
+        setState(prevState => ({ ...prevState, roomNotFound: true }));
       }
     };
 
     initializeRoom();
-    
-    // Cleanup polling on unmount  
-    return () => {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
+  }, [roomId, setState, fetchRoomData]); // Keep dependencies for initial setup
+
+  // Effect for loading last vote on mount
+  useEffect(() => {
+    // Load the last vote from session storage if available
+    const lastVote = sessionStorage.getItem('planning-poker-last-vote');
+    if (lastVote) {
+      setLocalSelectedVote(lastVote);
+    }
+  }, []);
+
+  // Effect to watch for when votes are reset
+  useEffect(() => {
+    // Check if votes were reset by checking if current user's vote is now empty/not_voted
+    const sessionUsername = sessionStorage.getItem('planning-poker-username');
+    if (sessionUsername && state.votes) {
+      const currentVote = state.votes[sessionUsername]?.vote;
+      
+      // If the current user has no vote or "not_voted", clear the local selection
+      if (!currentVote || currentVote === "not_voted") {
+        setLocalSelectedVote(null);
+        sessionStorage.removeItem('planning-poker-last-vote');
       }
+    }
+  }, [state.votes]);
+
+  // Effect for polling with visibility check - Simplified
+  useEffect(() => {
+    // Do not start polling if the room wasn't found initially
+    if (state.roomNotFound) {
+        return;
+    }
+
+    let isTabVisible = document.visibilityState === 'visible';
+
+    const handleVisibilityChange = () => {
+        isTabVisible = document.visibilityState === 'visible';
     };
-  }, [roomId]); // Re-run when roomId changes
+
+    console.log("Setting up polling interval (3s) and visibility listener.");
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const pollingInterval = setInterval(() => {
+      const sessionUsername = sessionStorage.getItem('planning-poker-username');
+      // Check visibility, username, and room status before fetching
+      if (isTabVisible && sessionUsername && !state.roomNotFound) {
+        fetchRoomData(true).catch(err => console.error("Poll refresh error:", err));
+      }
+    }, 3000); // Polling interval: 3 seconds
+
+    // Cleanup function
+    return () => {
+      console.log("Clearing polling interval and visibility listener.");
+      clearInterval(pollingInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  // Re-run this effect only if the room status fundamentally changes (found/not found)
+  // or if fetchRoomData reference changes (which it shouldn't if useCallback is used correctly in useRoom)
+  }, [fetchRoomData, state.roomNotFound]);
 
   const handleVote = async (vote: string) => {
     const sessionUsername = sessionStorage.getItem('planning-poker-username');
     if (sessionUsername) {
-      await roomApi.castVote(roomId || '', sessionUsername, vote);
-      fetchRoomData();
-    }
-  };
-
-  const handleRevealVotes = async () => {
-    try {
-      await roomApi.revealVotes(roomId || '');
-      setState((prevState: RoomState) => ({ ...prevState, votesVisible: true }));
-      await fetchRoomData();
-      console.log('Votes revealed');
-    } catch (error) {
-      console.error('Error revealing votes:', error);
-    }
-  };
-
-  const handleResetVotes = async () => {
-    try {
-      // First reset the votes on the server
-      await roomApi.resetVotes(roomId || '');
-      
-      // Clear votes and visibility in state
-      setState((prevState: RoomState) => ({ 
-        ...prevState, 
-        votes: {},
-        votesVisible: false 
-      }));
-
-      // Clear the current user's vote
-      const sessionUsername = sessionStorage.getItem('planning-poker-username');
-      if (sessionUsername) {
-        setState((prevState: RoomState) => ({
-          ...prevState,
-          votes: {
-            ...prevState.votes,
-            [sessionUsername]: ''  // Set to empty string instead of undefined
-          }
-        }));
+      try {
+        // Store the vote locally so we know what was selected
+        setLocalSelectedVote(vote);
+        // Store in session storage to persist across refreshes
+        sessionStorage.setItem('planning-poker-last-vote', vote);
+        
+        await roomApi.castVote(roomId || '', sessionUsername, vote);
+        // After voting, refresh the room data to get updated vote status
+        await fetchRoomData();
+      } catch (error: any) {
+        console.error('Error casting vote:', error);
+        setSnackbarMessage(error.message || "Failed to cast vote.");
       }
-
-      console.log('Votes reset');
-    } catch (error) {
-      console.error('Error resetting votes:', error);
+    } else {
+      console.error('No username found in session');
+      setSnackbarMessage("You must join the room before voting.");
     }
   };
 
-  const handleDeleteRoom = async () => {
+  // Helper to get admin password from session storage
+  const getAdminPassword = useCallback(() => {
+    return sessionStorage.getItem(`admin_${roomId}`);
+  }, [roomId]);
+
+  // Function to handle admin actions requiring password verification
+  const performAdminAction = useCallback(async (action: (roomId: string, adminPassword?: string) => Promise<any>) => {
+    if (!isAdmin) {
+      setAdminModeDialog(true);
+      setSnackbarMessage("Admin privileges required.");
+      return; // Don't proceed if not admin
+    }
+    
+    const adminPassword = getAdminPassword();
+    if (!adminPassword) {
+        // This case should ideally not happen if isAdmin is true, but handle defensively
+        setAdminModeDialog(true);
+        setSnackbarMessage("Admin verification needed. Please enter password.");
+        return;
+    }
+
+    try {
+        await action(roomId || '', adminPassword);
+        await fetchRoomData(); // Refresh data after successful action
+    } catch (error: any) {
+        console.error('Admin action failed:', error);
+        if (error.message && error.message.includes("Invalid admin password")) {
+            clearAdmin(); // Clear invalid stored password
+            setAdminModeDialog(true); // Re-prompt for password
+            setSnackbarMessage("Invalid admin password. Please try again.");
+        } else {
+            setSnackbarMessage(error.message || 'An error occurred performing the admin action.');
+        }
+    }
+  }, [roomId, isAdmin, getAdminPassword, clearAdmin, fetchRoomData]);
+
+  const handleRevealVotes = useCallback(() => {
+    performAdminAction(roomApi.revealVotes);
+  }, [performAdminAction]);
+
+  const handleResetVotes = useCallback(() => {
+    // Clear local vote state and storage when votes are reset
+    setLocalSelectedVote(null);
+    sessionStorage.removeItem('planning-poker-last-vote');
+    
+    performAdminAction(roomApi.resetVotes);
+  }, [performAdminAction]);
+
+  const handleDeleteRoom = () => {
+    if (!isAdmin) {
+        setAdminModeDialog(true);
+        setSnackbarMessage("Admin privileges required to delete the room.");
+        return;
+    }
     setDeleteConfirmDialog(true);
   };
 
-  const confirmDeleteRoom = async () => {
+  const confirmDeleteRoom = useCallback(async () => {
+    setIsDeletingRoom(true);
+    setDeleteRoomError(null);
+    setDeleteConfirmDialog(false);
+    
+    const adminPassword = getAdminPassword();
+    if (!adminPassword) {
+        setAdminModeDialog(true);
+        setDeleteRoomError("Admin verification needed.");
+        setIsDeletingRoom(false);
+        return;
+    }
+
     try {
-      setIsDeletingRoom(true);
-      setDeleteRoomError(null);
-      setDeleteConfirmDialog(false);
-      
-      // Call the API to delete the room
-      await roomApi.deleteRoom(roomId || '');
+      // Call the API to delete the room with admin password
+      await roomApi.deleteRoom(roomId || '', adminPassword);
       
       // Show the room deleted dialog
+      setSnackbarMessage("Room deleted successfully.");
       setRoomDeletedDialog(true);
       
-      // Navigate after a delay to allow the dialog to display
+      // Navigate after a delay
       setTimeout(() => {
         navigate('/');
       }, 3000);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting room:', error);
-      setDeleteRoomError('Failed to delete room. Please try again.');
+      if (error.message && error.message.includes("Invalid admin password")) {
+          clearAdmin(); // Clear invalid stored password
+          setAdminModeDialog(true); // Re-prompt for password
+          setDeleteRoomError("Invalid admin password. Please try again.");
+      } else {
+          setDeleteRoomError(error.message || 'Failed to delete room. Please try again.');
+      }
       setIsDeletingRoom(false);
     }
-  };
+  }, [roomId, navigate, clearAdmin, getAdminPassword]);
 
   const handleJoin = async () => {
     if (state.username) {
-      console.log(`User ${state.username} joining room ${roomId} via handleJoin`);
-      
+      setUsernameError(null);
       try {
-        // Check if username is already taken
-        const roomData = await roomApi.fetchRoom(roomId || '');
-        const existingUsers = Object.values(roomData.users || {}).map((user: any) => user.username);
-        
-        if (existingUsers.includes(state.username)) {
-          setUsernameError('This name is already taken. Please choose a different name.');
-          return;
-        }
-        
-        // If username is available, proceed with join
-        sessionStorage.setItem('planning-poker-username', state.username);
-        localStorage.setItem('planning-poker-username', state.username);
-        
         // Call the API endpoint to add the user to the room
         await roomApi.joinRoom(roomId || '', state.username);
-        console.log(`API join successful for user ${state.username} in room ${roomId}`);
         
-        // Clear any previous error
-        setUsernameError(null);
+        // Store username
+        sessionStorage.setItem('planning-poker-username', state.username);
+        localStorage.setItem('planning-poker-username', state.username);
+
+        // Close the dialog
+        setState(prevState => ({ ...prevState, open: false }));
         
         // Fetch vote options after successful join
         try {
           const voteOptions = await roomApi.getVoteOptions(roomId || '');
-          console.log("Fetched vote options after join:", voteOptions);
           setState(prevState => ({
             ...prevState,
-            open: false,
             voteOptions
           }));
         } catch (error) {
-          console.error('Failed to fetch vote options:', error);
           const defaultOptions = ['0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89', '?'];
-          setState(prevState => ({
-            ...prevState,
-            open: false,
-            voteOptions: defaultOptions
+          setState(prevState => ({ 
+            ...prevState, 
+            voteOptions: defaultOptions 
           }));
         }
-
-        fetchRoomData();
-      } catch (error) {
-        console.error('Failed to join room:', error);
-        setUsernameError('Failed to join room. Please try again.');
+        
+        // Fetch initial room data after joining
+        await fetchRoomData(); 
+        
+      } catch (error: any) {
+        setUsernameError(error.message || 'Failed to join room. Please try again.');
       }
     }
+  };
+
+  const handleVoteOptionsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setState(prevState => ({ ...prevState, voteOptionsInput: e.target.value }));
+  };
+
+  const handleAdminPasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setRoomNotFoundAdminPassword(e.target.value);
+    setRoomNotFoundError(null);
   };
 
   const handleCreateRoom = async () => {
     try {
-      // Parse vote options from input and create room with them
-      const voteOptions = state.voteOptionsInput.split(',').map(option => option.trim());
-      const data = await roomApi.createRoom(roomId, voteOptions);
-      
-      setState(prevState => ({ ...prevState, roomNotFound: false }));
-      fetchRoomData();
-  
-      const sessionUsername = sessionStorage.getItem('planning-poker-username');
-      if (sessionUsername) {
-        setState(prevState => ({ ...prevState, username: sessionUsername }));
-        const usersList = data.users || [];
-        if (!usersList.includes(sessionUsername)) {
-          setState(prevState => ({ ...prevState, open: true }));
-        }
-      } else {
-        const localUsername = localStorage.getItem('planning-poker-username');
-        if (localUsername) {
-          setState(prevState => ({ ...prevState, username: localUsername }));
-        }
-        setState(prevState => ({ ...prevState, open: true }));
+      if (!roomNotFoundAdminPassword.trim()) {
+        setRoomNotFoundError("Admin password is required.");
+        return;
       }
-    } catch (error) {
-      console.error('Error creating room:', error);
-      alert('Failed to create room. Please try again.');
+      
+      const parsedVoteOptions = state.voteOptionsInput.split(',').map(option => option.trim()).filter(Boolean);
+      const data = await roomApi.createRoom(roomId, parsedVoteOptions, roomNotFoundAdminPassword);
+      
+      // Store admin password in session storage
+      const sessionKey = `admin_${data.roomId}`;
+      sessionStorage.setItem(sessionKey, roomNotFoundAdminPassword);
+      
+      // Fetch data for the newly created room
+      await fetchRoomData(); 
+      
+      // Close the not found dialog
+      setState(prevState => ({ ...prevState, roomNotFound: false }));
+      
+      // Show username dialog for the new room
+      setState(prevState => ({ ...prevState, open: true }));
+      
+    } catch (error: any) {
+      console.error('Error creating room from dialog:', error);
+      setRoomNotFoundError(error.message || 'Failed to create room. Please try again.');
     }
   };
 
-  const { avgVote, sortedVotes } = calculateSummary(state.votes);
-  
-  // Add more debug logging
-  console.log("Render state:", {
-    roomNotFound: state.roomNotFound,
-    open: state.open,
-    username: state.username,
-    users: state.users,
-    votes: state.votes,
-    votesVisible: state.votesVisible,
-    voteOptions: state.voteOptions,
-    sortedVotes,
-    avgVote
-  });
+  const handleNavigateHome = () => {
+    navigate('/');
+  };
 
-  // Just keeping a minimal fallback for safety
-  if (!state) {
+  // Calculate summary when votes are visible
+  const summary = state.votesVisible ? calculateSummary(state.votes) : null;
+  
+  // Get current user's vote
+  const currentUserVote = state.username ? state.votes[state.username]?.vote : undefined;
+
+  // Handle closing the snackbar
+  const handleCloseSnackbar = (event?: React.SyntheticEvent | Event, reason?: string) => {
+    if (reason === 'clickaway') {
+      return;
+    }
+    setSnackbarMessage(null);
+  };
+
+  // If room not found, show RoomNotFoundDialog
+  if (state.roomNotFound) {
     return (
-      <div style={{color: 'white', padding: '20px'}}>
-        <h2>Loading Room: {roomId}</h2>
-        <button onClick={fetchRoomData}>Refresh</button>
-      </div>
+      <RoomNotFoundDialog
+        open={state.roomNotFound}
+        roomId={roomId || ''}
+        voteOptionsInput={state.voteOptionsInput}
+        adminPassword={roomNotFoundAdminPassword}
+        onClose={() => navigate('/')} // Close navigates home
+        onVoteOptionsChange={handleVoteOptionsChange}
+        onAdminPasswordChange={handleAdminPasswordChange}
+        onCreate={handleCreateRoom}
+        onNavigateHome={handleNavigateHome}
+        error={roomNotFoundError}
+      />
     );
   }
-  
-  // Find the current user's vote
-  const sessionUsername = sessionStorage.getItem('planning-poker-username');
-  const currentUserVote = sessionUsername ? state.votes[sessionUsername] : undefined;
-  
-  // Main UI
+
+  // Main Room component structure
   return (
-    <Container maxWidth="lg" sx={{ py: 4, position: 'relative' }}>
+    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
       <Paper 
-        elevation={5}
+        elevation={3} 
         sx={{ 
-          backgroundColor: '#1e2a38', // Darker background
-          p: 3, 
-          borderRadius: '20px',
-          boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-          overflow: 'hidden',
-          border: '1px solid #2c3e50',
-          position: 'relative'
+          p: 4, 
+          backgroundColor: '#1e2a38', // Main container background
+          color: '#ecf0f1',
+          borderRadius: '15px' 
         }}
       >
-        {/* Combined room header */}
+        {/* Header with Room Name and Admin Controls */}
         <Box
           sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
             backgroundColor: '#2c3e50',
             p: 2,
             mb: 4,
             borderRadius: '10px',
-            textAlign: 'center',
             position: 'relative'
           }}
         >
@@ -365,185 +462,115 @@ const Room: React.FC = () => {
               textShadow: '1px 1px 3px rgba(0,0,0,0.3)'
             }}
           >
-            Planning Poker
-          </Typography>
-          <Typography 
-            variant="h6" 
-            sx={{ 
-              color: '#3498db', 
-              fontWeight: 'bold',
-              mt: 1
-            }}
-          >
             Room: {roomId}
           </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+             <Tooltip title="Refresh Room Data">
+                <IconButton onClick={() => fetchRoomData(false)} sx={{ color: '#ecf0f1' }}>
+                    <RefreshIcon />
+                </IconButton>
+             </Tooltip>
+             {isAdmin ? (
+                <Tooltip title="Exit Admin Mode">
+                    <IconButton onClick={clearAdmin} sx={{ color: '#e74c3c' }}>
+                        <LogoutIcon />
+                    </IconButton>
+                </Tooltip>
+             ) : (
+                <Tooltip title="Enter Admin Mode">
+                    <IconButton onClick={() => setAdminModeDialog(true)} sx={{ color: '#3498db' }}>
+                        <AdminPanelSettingsIcon />
+                    </IconButton>
+                </Tooltip>
+             )}
+          </Box>
         </Box>
 
-        {/* User list with cards around the table and action buttons in center */}
+        {/* User list with cards around the table */}
         <UserList
-          users={Object.values(state.users).map(user => user.username)}
           votes={state.votes}
           votesVisible={state.votesVisible}
-          onReveal={handleRevealVotes}
-          onReset={handleResetVotes}
+          onReveal={isAdmin ? handleRevealVotes : undefined} // Only pass if admin
+          onReset={isAdmin ? handleResetVotes : undefined}   // Only pass if admin
         />
 
-        {/* Voting options */}
+        {/* Voting options and controls */}
         <VotingControls
           voteOptions={state.voteOptions}
           onVote={handleVote}
-          onReveal={handleRevealVotes}
+          onReveal={handleRevealVotes} // Pass admin-protected reveal
           onRefresh={fetchRoomData}
-          onReset={handleResetVotes}
-          onDeleteRoom={handleDeleteRoom}
-          selectedVote={currentUserVote}
+          onReset={handleResetVotes}   // Pass admin-protected reset
+          onDeleteRoom={handleDeleteRoom} // Pass admin-protected delete trigger
+          selectedVote={localSelectedVote || undefined}
           votesVisible={state.votesVisible}
           isDeletingRoom={isDeletingRoom}
+          isAdmin={isAdmin} // Pass admin status to disable buttons if needed
+          hasVoted={!!currentUserVote && currentUserVote !== "not_voted"}
         />
 
-        {/* Results summary (only visible when votes are revealed) */}
-        {state.votesVisible && (
-          <VotingSummary
-            avgVote={avgVote}
-            sortedVotes={sortedVotes}
+        {/* Voting Summary */}      
+        {state.votesVisible && summary && (
+          <VotingSummary 
+            avgVote={summary.avgVote} 
+            sortedVotes={summary.sortedVotes} 
           />
         )}
 
-        {/* Dialogs */}
-        <UsernameDialog
-          open={state.open}
-          username={state.username}
-          error={usernameError || undefined}
-          onClose={() => {
-            setState((prevState: RoomState) => ({ ...prevState, open: false }));
-            setUsernameError(null);
-          }}
-          onUsernameChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-            setUsernameError(null);
-            setState((prevState: RoomState) => ({ ...prevState, username: e.target.value }));
-          }}
-          onJoin={handleJoin}
-        />
-
-        <RoomNotFoundDialog
-          open={state.roomNotFound}
-          roomId={roomId || ''}
-          voteOptionsInput={state.voteOptionsInput}
-          onClose={() => setState((prevState: RoomState) => ({ ...prevState, roomNotFound: false }))}
-          onVoteOptionsChange={(e: React.ChangeEvent<HTMLInputElement>) => 
-            setState((prevState: RoomState) => ({ ...prevState, voteOptionsInput: e.target.value }))}
-          onCreate={handleCreateRoom}
-          onNavigateHome={() => navigate('/')}
-        />
-
-        <DeleteRoomDialog
-          open={deleteConfirmDialog}
-          onClose={() => setDeleteConfirmDialog(false)}
-          onConfirm={confirmDeleteRoom}
-          roomId={roomId || ''}
-        />
-        
-        {/* Room Deleted Dialog */}
-        <Dialog
-          open={roomDeletedDialog}
-          aria-labelledby="room-deleted-dialog-title"
-          sx={{
-            '& .MuiDialog-paper': {
-              backgroundColor: '#1e2a38',
-              border: '1px solid #3498db',
-              borderRadius: '16px',
-              maxWidth: '400px',
-            }
-          }}
-        >
-          <DialogTitle 
-            id="room-deleted-dialog-title"
-            sx={{ 
-              backgroundColor: '#2c3e50',
-              color: '#ecf0f1',
-              textAlign: 'center'
-            }}
-          >
-            Room Deleted
-          </DialogTitle>
-          <DialogContent
-            sx={{
-              padding: '20px',
-              color: '#ecf0f1'
-            }}
-          >
-            <Typography variant="body1" sx={{ marginTop: '10px', marginBottom: '15px' }}>
-              This room has been deleted by the admin. You will be redirected to the home page in a few seconds.
-            </Typography>
-          </DialogContent>
-          <DialogActions sx={{ padding: '15px', justifyContent: 'center' }}>
-            <Button 
-              onClick={() => navigate('/')} 
-              variant="contained"
-              sx={{
-                backgroundColor: '#3498db',
-                color: 'white',
-                '&:hover': {
-                  backgroundColor: '#2980b9'
-                }
-              }}
-            >
-              Go to Home Page Now
-            </Button>
-          </DialogActions>
-        </Dialog>
-        
-        {/* Delete Room Error Dialog */}
-        <Dialog
-          open={!!deleteRoomError}
-          onClose={() => setDeleteRoomError(null)}
-          aria-labelledby="delete-room-error-dialog-title"
-          sx={{
-            '& .MuiDialog-paper': {
-              backgroundColor: '#1e2a38',
-              border: '1px solid #e74c3c',
-              borderRadius: '16px',
-              maxWidth: '400px',
-            }
-          }}
-        >
-          <DialogTitle 
-            id="delete-room-error-dialog-title"
-            sx={{ 
-              backgroundColor: '#2c3e50',
-              color: '#ecf0f1',
-              textAlign: 'center'
-            }}
-          >
-            Error Deleting Room
-          </DialogTitle>
-          <DialogContent
-            sx={{
-              padding: '20px',
-              color: '#ecf0f1'
-            }}
-          >
-            <Typography variant="body1" sx={{ marginTop: '10px', marginBottom: '15px' }}>
-              {deleteRoomError}
-            </Typography>
-          </DialogContent>
-          <DialogActions sx={{ padding: '15px', justifyContent: 'center' }}>
-            <Button 
-              onClick={() => setDeleteRoomError(null)} 
-              variant="contained"
-              sx={{
-                backgroundColor: '#3498db',
-                color: 'white',
-                '&:hover': {
-                  backgroundColor: '#2980b9'
-                }
-              }}
-            >
-              Close
-            </Button>
-          </DialogActions>
-        </Dialog>
       </Paper>
+
+      {/* Dialogs */}
+      <UsernameDialog
+        open={state.open}
+        username={state.username}
+        error={usernameError}
+        setUsername={(newUsername) => setState(prevState => ({ ...prevState, username: newUsername }))}
+        onJoin={handleJoin}
+        onClose={() => setState(prevState => ({ ...prevState, open: false }))} // Allow closing without joining
+      />
+      
+      <DeleteRoomDialog
+        open={deleteConfirmDialog}
+        onClose={() => setDeleteConfirmDialog(false)}
+        onConfirm={confirmDeleteRoom}
+        isLoading={isDeletingRoom}
+        error={deleteRoomError}
+        roomId={roomId || ''}
+      />
+
+      <AdminModeDialog 
+        open={adminModeDialog}
+        onClose={() => setAdminModeDialog(false)}
+        onSubmit={verifyAdminPassword} // Use the verification function from the hook
+        isLoading={isAdminLoading} // Pass loading state from the hook
+        error={verificationError} // Pass error state from the hook
+      />
+      
+      {/* Dialog for room deleted confirmation */}
+      <Dialog open={roomDeletedDialog} onClose={() => navigate('/')}> 
+        <DialogTitle>Room Deleted</DialogTitle>
+        <DialogContent>
+          <Typography>The room "{roomId}" has been deleted. You will be redirected to the home page.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => navigate('/')} autoFocus>
+            OK
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Snackbar for messages */}
+       <Snackbar
+        open={!!snackbarMessage}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity="info" sx={{ width: '100%' }}>
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
+
     </Container>
   );
 };

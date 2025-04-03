@@ -1,10 +1,12 @@
 import React from 'react';
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography } from '@mui/material';
+import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, CircularProgress, Alert } from '@mui/material';
 
 interface DeleteRoomDialogProps {
   open: boolean;
   onClose: () => void;
   onConfirm: () => void;
+  isLoading: boolean;
+  error: string | null;
   roomId: string;
 }
 
@@ -12,6 +14,8 @@ export const DeleteRoomDialog: React.FC<DeleteRoomDialogProps> = ({
   open,
   onClose,
   onConfirm,
+  isLoading,
+  error,
   roomId
 }) => (
   <Dialog
@@ -51,11 +55,13 @@ export const DeleteRoomDialog: React.FC<DeleteRoomDialogProps> = ({
       <Typography variant="body1" sx={{ color: '#e74c3c' }}>
         All users will be disconnected and all data will be lost.
       </Typography>
+      {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
     </DialogContent>
     <DialogActions sx={{ padding: '16px', justifyContent: 'space-between' }}>
       <Button
         onClick={onClose}
         variant="outlined"
+        disabled={isLoading}
         sx={{
           borderColor: '#606060',
           color: '#e0e0e0',
@@ -70,15 +76,17 @@ export const DeleteRoomDialog: React.FC<DeleteRoomDialogProps> = ({
       <Button
         onClick={onConfirm}
         variant="contained"
+        disabled={isLoading}
         sx={{
           backgroundColor: '#e74c3c',
           color: 'white',
           '&:hover': {
             backgroundColor: '#c0392b'
-          }
+          },
+          minWidth: '120px'
         }}
       >
-        Delete Room
+        {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Delete Room'}
       </Button>
     </DialogActions>
   </Dialog>

@@ -5,20 +5,26 @@ interface RoomNotFoundDialogProps {
   open: boolean;
   roomId: string;
   voteOptionsInput: string;
+  adminPassword: string;
   onClose: () => void;
   onVoteOptionsChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onAdminPasswordChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onCreate: () => void;
   onNavigateHome: () => void;
+  error?: string | null;
 }
 
 export const RoomNotFoundDialog: React.FC<RoomNotFoundDialogProps> = ({
   open,
   roomId,
   voteOptionsInput,
+  adminPassword,
   onClose,
   onVoteOptionsChange,
+  onAdminPasswordChange,
   onCreate,
   onNavigateHome,
+  error
 }) => (
   <Dialog 
     open={open} 
@@ -86,6 +92,44 @@ export const RoomNotFoundDialog: React.FC<RoomNotFoundDialogProps> = ({
           sx: { color: '#909090' }
         }}
       />
+      <TextField
+        margin="dense"
+        label="Admin Password (Required)"
+        type="password"
+        fullWidth
+        value={adminPassword}
+        onChange={onAdminPasswordChange}
+        variant="outlined"
+        required
+        error={!!error}
+        helperText={error || "Password required to manage this room"}
+        sx={{
+          marginTop: '15px',
+          '& .MuiOutlinedInput-root': {
+            '& fieldset': {
+              borderColor: error ? '#ff6b6b' : '#404040',
+            },
+            '&:hover fieldset': {
+              borderColor: error ? '#ff6b6b' : '#606060',
+            },
+            '&.Mui-focused fieldset': {
+              borderColor: error ? '#ff6b6b' : '#4a9eff',
+            },
+          },
+          '& .MuiInputLabel-root': {
+            color: error ? '#ff6b6b' : '#909090',
+          },
+          '& .MuiInputLabel-root.Mui-focused': {
+            color: error ? '#ff6b6b' : '#4a9eff',
+          },
+          '& .MuiInputBase-input': {
+            color: '#ffffff',
+          },
+        }}
+        FormHelperTextProps={{
+          sx: { color: error ? '#ff6b6b' : '#909090' }
+        }}
+      />
     </DialogContent>
     <DialogActions sx={{ padding: '16px' }}>
       <Button 
@@ -108,10 +152,15 @@ export const RoomNotFoundDialog: React.FC<RoomNotFoundDialogProps> = ({
         onClick={onCreate} 
         color="primary"
         variant="contained"
+        disabled={!adminPassword.trim()}
         sx={{
           backgroundColor: '#4a9eff',
           '&:hover': {
             backgroundColor: '#3d84d6'
+          },
+          '&.Mui-disabled': {
+            backgroundColor: '#606060',
+            color: '#909090'
           }
         }}
       >

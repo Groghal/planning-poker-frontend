@@ -2,23 +2,59 @@ import React from 'react';
 import { Box, Typography, Paper, Button } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import HelpIcon from '@mui/icons-material/Help';
+import { User } from '../../types/room';
 
 interface UserListProps {
-  users: string[];
-  votes: Record<string, string>;
+  votes: Record<string, User>;
   votesVisible: boolean;
   onReveal?: () => void;
   onReset?: () => void;
 }
 
 export const UserList: React.FC<UserListProps> = ({ 
-  users, 
   votes, 
   votesVisible,
   onReveal,
   onReset 
 }) => {
-  const hasVoted = (user: string) => !!votes[user];
+  // Check if a user has voted
+  const hasVoted = (username: string) => {
+    const userVote = votes[username]?.vote;
+    return userVote === "voted" || (userVote && userVote !== "not_voted");
+  };
+  
+  // Get the display value for a vote
+  const getVoteDisplay = (username: string) => {
+    const userVote = votes[username]?.vote;
+    
+    if (!votesVisible) {
+      // When votes are not revealed, show check or question mark
+      if (!userVote || userVote === "not_voted") {
+        return <HelpIcon fontSize="medium" sx={{ color: "#ecf0f1" }} />;
+      } else if (userVote === "voted") {
+        return <CheckCircleIcon fontSize="medium" color="success" />;
+      } else {
+        // If it's an actual vote value but votes aren't visible
+        return <CheckCircleIcon fontSize="medium" color="success" />;
+      }
+    } else {
+      // When votes are revealed, show actual value or question mark
+      if (!userVote || userVote === "not_voted") {
+        return <HelpIcon fontSize="medium" sx={{ color: "#ecf0f1" }} />;
+      } else if (userVote === "voted") {
+        // This shouldn't happen when votes are revealed, but just in case
+        return <CheckCircleIcon fontSize="medium" color="success" />;
+      } else {
+        // Show the actual vote value
+        return userVote;
+      }
+    }
+  };
+  
+  // Get list of usernames
+  const usernames = Object.keys(votes);
   
   // Position users around the table in alternating top/bottom pattern
   const calculatePosition = (index: number, total: number) => {
@@ -122,7 +158,9 @@ export const UserList: React.FC<UserListProps> = ({
               <Button
                 variant="contained"
                 startIcon={<RestartAltIcon />}
-                onClick={onReset}
+                onClick={() => {
+                  onReset();
+                }}
                 sx={{
                   backgroundColor: '#d35400',
                   color: '#ecf0f1',
@@ -141,8 +179,9 @@ export const UserList: React.FC<UserListProps> = ({
         )}
         
         {/* Place users around the table */}
-        {users.map((user, index) => {
-          const position = calculatePosition(index, users.length);
+        {usernames.map((username, index) => {
+          const position = calculatePosition(index, usernames.length);
+          const userHasVoted = hasVoted(username);
           
           return (
             <Box 
@@ -163,14 +202,14 @@ export const UserList: React.FC<UserListProps> = ({
                   width: '60px',
                   height: '90px',
                   borderRadius: '10px',
-                  backgroundColor: hasVoted(user) ? '#3498db' : '#95a5a6',
+                  backgroundColor: userHasVoted ? '#3498db' : '#95a5a6',
                   display: 'flex',
                   justifyContent: 'center',
                   alignItems: 'center',
                   border: '2px solid #ecf0f1',
                   mb: 1,
                   transition: 'all 0.3s ease',
-                  transform: hasVoted(user) ? 'translateY(-10px)' : 'none',
+                  transform: userHasVoted ? 'translateY(-10px)' : 'none',
                   cursor: 'default',
                   '&:hover': {
                     transform: 'translateY(-15px) scale(1.05)',
@@ -185,7 +224,7 @@ export const UserList: React.FC<UserListProps> = ({
                     fontSize: '1.8rem'
                   }}
                 >
-                  {votesVisible ? (votes[user] || '?') : (hasVoted(user) ? '✓' : '?')}
+                  {getVoteDisplay(username)}
                 </Typography>
               </Paper>
               
@@ -202,7 +241,7 @@ export const UserList: React.FC<UserListProps> = ({
                   whiteSpace: 'nowrap'
                 }}
               >
-                {user}
+                {username}
               </Typography>
             </Box>
           );

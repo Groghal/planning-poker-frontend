@@ -36,6 +36,10 @@ export const roomApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username }),
     });
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Failed to join room: ${response.status}`);
+    }
     return response.json();
   },
 
@@ -46,39 +50,58 @@ export const roomApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, vote }),
     });
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Failed to cast vote: ${response.status}`);
+    }
     return response.json();
   },
   
-  deleteRoom: async (roomId: string) => {
+  deleteRoom: async (roomId: string, adminPassword?: string) => {
     const url = getApiUrl(API_CONFIG.ENDPOINTS.ROOM(roomId));
     const response = await fetch(url, {
       method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminPassword }),
     });
     
     if (!response.ok) {
-      throw new Error(`Failed to delete room: ${response.status}`);
+      const errorData = await response.json();
+      throw new Error(errorData.message || `Failed to delete room: ${response.status}`);
     }
     
     return response.json();
   },
   
-  revealVotes: async (roomId: string) => {
+  revealVotes: async (roomId: string, adminPassword?: string) => {
     const url = getApiUrl(API_CONFIG.ENDPOINTS.REVEAL(roomId));
     const response = await fetch(url, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminPassword }),
     });
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Failed to reveal votes: ${response.status}`);
+    }
     return response.json();
   },
   
-  resetVotes: async (roomId: string) => {
+  resetVotes: async (roomId: string, adminPassword?: string) => {
     const url = getApiUrl(API_CONFIG.ENDPOINTS.RESET(roomId));
     const response = await fetch(url, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminPassword }),
     });
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Failed to reset votes: ${response.status}`);
+    }
     return response.json();
   },
   
-  createRoom: async (roomId?: string, voteOptions?: string[]) => {
+  createRoom: async (roomId?: string, voteOptions?: string[], adminPassword?: string) => {
     const url = getApiUrl(API_CONFIG.ENDPOINTS.ROOMS);
     const body: any = {};
     
@@ -89,6 +112,10 @@ export const roomApi = {
     if (voteOptions && voteOptions.length > 0) {
       body.voteOptions = voteOptions;
     }
+
+    if (adminPassword) {
+        body.adminPassword = adminPassword;
+    }
     
     const response = await fetch(url, {
       method: 'POST',
@@ -96,6 +123,10 @@ export const roomApi = {
       body: JSON.stringify(body),
     });
     
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Failed to create room: ${response.status}`);
+    }
     return response.json();
   },
 
@@ -109,5 +140,25 @@ export const roomApi = {
     
     const data = await response.json();
     return data || [];
+  },
+
+  verifyAdmin: async (roomId: string, adminPassword?: string) => {
+    const url = getApiUrl(API_CONFIG.ENDPOINTS.VERIFY_ADMIN(roomId));
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPassword }),
+    });
+
+    if (!response.ok) {
+        // Don't throw an error for 401 Unauthorized, just return false
+        if (response.status === 401) {
+            return { verified: false };
+        }
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Admin verification failed: ${response.status}`);
+    }
+
+    return response.json(); // Should return { verified: true } on success
   }
 };

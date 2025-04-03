@@ -14,6 +14,8 @@ interface VotingControlsProps {
   selectedVote?: string;
   votesVisible: boolean;
   isDeletingRoom?: boolean;
+  isAdmin: boolean;
+  hasVoted: boolean;
 }
 
 export const VotingControls: React.FC<VotingControlsProps> = ({
@@ -26,30 +28,60 @@ export const VotingControls: React.FC<VotingControlsProps> = ({
   selectedVote,
   votesVisible,
   isDeletingRoom = false,
+  isAdmin,
+  hasVoted = false
 }) => {
   const [selected, setSelected] = useState<string | null>(null);
   
   // Update selected when selectedVote from props changes
   useEffect(() => {
-    setSelected(selectedVote || null);
-  }, [selectedVote]);
+    // Clear selection if selectedVote became undefined
+    if (selectedVote === undefined) {
+      setSelected(null);
+      return;
+    }
+    
+    if (selectedVote && selectedVote !== "voted" && selectedVote !== "not_voted") {
+      // If we have an actual vote value, use it
+      setSelected(selectedVote);
+    } else if (hasVoted && selected === null) {
+      // If user has voted but we don't know the value, maintain the locally selected value
+      // This maintains the visual selection of the card they clicked
+    } else if (!hasVoted) {
+      // If user hasn't voted, clear selection
+      setSelected(null);
+    }
+  }, [selectedVote, hasVoted, selected]);
   
   // Reset selected vote when votes are reset
   useEffect(() => {
-    if (!votesVisible) {
+    if (!votesVisible && !hasVoted) {
+      // Only clear if not voted
       setSelected(null);
     }
-  }, [votesVisible]);
+  }, [votesVisible, hasVoted]);
   
   const handleVote = (vote: string) => {
+    // First update local state immediately to give visual feedback
     setSelected(vote);
+    
+    // Then call the parent's vote handler
     onVote(vote);
+    
+    // Remove the immediate refresh - the Room component will handle this
   };
   
   const handleReset = () => {
     setSelected(null);  // Explicitly clear selection
     onReset();
   };
+  
+  // Also add useEffect to reset on props change
+  useEffect(() => {
+    if (!hasVoted) {
+      setSelected(null);
+    }
+  }, [hasVoted]);
   
   // Dynamically split vote options into rows if there are many
   const votesPerRow = 10;
@@ -61,15 +93,13 @@ export const VotingControls: React.FC<VotingControlsProps> = ({
 
   return (
     <Box sx={{ position: 'relative' }}>
-      {/* Refresh button is now in the Room component */}
-      
       {/* Delete room button (bottom left) */}
       {onDeleteRoom && (
         <Button
           variant="contained"
           startIcon={<DeleteForeverIcon />}
           onClick={onDeleteRoom}
-          disabled={isDeletingRoom}
+          disabled={isDeletingRoom || !isAdmin}
           sx={{
             position: 'fixed',
             bottom: '20px',
@@ -175,6 +205,7 @@ export const VotingControls: React.FC<VotingControlsProps> = ({
             variant="contained"
             startIcon={<VisibilityIcon />}
             onClick={onReveal}
+            disabled={!isAdmin}
             sx={{
               backgroundColor: '#27ae60',
               color: '#ecf0f1',
@@ -193,7 +224,11 @@ export const VotingControls: React.FC<VotingControlsProps> = ({
         <Button
           variant="contained"
           startIcon={<RestartAltIcon />}
-          onClick={handleReset}
+          onClick={() => {
+            setSelected(null); // Directly clear selected
+            handleReset();
+          }}
+          disabled={!isAdmin}
           sx={{
             backgroundColor: '#d35400',
             color: '#ecf0f1',

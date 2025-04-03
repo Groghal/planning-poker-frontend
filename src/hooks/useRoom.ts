@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { RoomState } from '../types/room';
 import { roomApi } from '../services/api';
 
 const useRoom = (roomId: string) => {
   const [state, setState] = useState<RoomState>({
-    users: {},
+    loading: true,
     votes: {},
     votesVisible: false,
     username: '',
@@ -14,39 +14,39 @@ const useRoom = (roomId: string) => {
     voteOptionsInput: '',
   });
 
-  const fetchRoomData = async () => {
-    // Return the promise so we can chain .then() and .catch()
-    return roomApi.fetchRoom(roomId)
-      .then(data => {
-        console.log('Room data received:', data);
-        // Get the current user's vote before updating state
-        const sessionUsername = sessionStorage.getItem('planning-poker-username');
-        const currentUserVote = sessionUsername ? state.votes[sessionUsername] : undefined;
-        
-        setState(prevState => ({
+  const fetchRoomData = useCallback(async (isPollingUpdate: boolean = false) => {
+    if (!isPollingUpdate) {
+        setState(prevState => ({ ...prevState, loading: true }));
+    }
+    try {
+      const data = await roomApi.fetchRoom(roomId);
+      
+      setState(prevState => {
+        return {
           ...prevState,
-          users: data.users || {},
-          // Preserve the current user's vote if it exists
-          votes: {
-            ...data.votes,
-            ...(currentUserVote ? { [sessionUsername!]: currentUserVote } : {})
-          },
+          loading: false,
+          roomNotFound: false,
+          votes: data.votes || {},
           votesVisible: data.showVotes || false,
-          // Preserve existing vote options if they exist
-          voteOptions: prevState.voteOptions.length > 0 ? prevState.voteOptions : (data.voteOptions || []),
-        }));
-        return data; // Return data for further processing
-      })
-      .catch(error => {
-        console.error('Error fetching room data:', error);
-        setState(prevState => ({ 
-          ...prevState, 
-          users: {},
-          roomNotFound: true 
-        }));
-        throw error; // Re-throw to allow catch in the component
+          voteOptions: data.voteOptions && data.voteOptions.length > 0 
+                         ? data.voteOptions 
+                         : prevState.voteOptions.length > 0 
+                           ? prevState.voteOptions 
+                           : [],
+        };
       });
-  };
+      return data;
+    } catch (error) {
+      console.error('Error fetching room data:', error);
+      setState(prevState => ({ 
+        ...prevState, 
+        loading: false,
+        votes: {},
+        roomNotFound: true 
+      }));
+      throw error;
+    }
+  }, [roomId]);
 
   return { state, setState, fetchRoomData };
 };

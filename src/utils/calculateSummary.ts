@@ -1,15 +1,17 @@
+import { User } from "../types/room";
+
 interface VoteSummary {
   avgVote: number;
   sortedVotes: [string, number][];
 }
 
-interface Votes {
-  [username: string]: string;
-}
-
-export function calculateSummary(votes: Votes): VoteSummary {
-  // Get all the votes as an array
-  const voteValues = Object.values(votes);
+export function calculateSummary(votes: Record<string, User>): VoteSummary {
+  // Get all the votes as an array, filtering out "voted" and "not_voted" placeholders
+  const voteValues = Object.values(votes)
+    .map(user => user.vote)
+    .filter(vote => 
+      vote !== null && vote !== "voted" && vote !== "not_voted"
+    ) as string[];
   
   // Calculate the average vote
   let sum = 0;

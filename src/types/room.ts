@@ -1,15 +1,14 @@
 export interface User {
   id: string;
-  username: string;
   vote: string | null;
 }
 
 export interface Room {
   id: string;
-  users: Record<string, User>;
-  votes: Record<string, string>;
+  votes: Record<string, User>;
   showVotes: boolean;
   host: string;
+  voteOptions: string[];
 }
 
 export interface VoteSummary {
@@ -22,8 +21,8 @@ export interface VoteSummary {
 }
 
 export interface RoomState {
-  users: Record<string, User>;
-  votes: Record<string, string>;
+  loading: boolean;
+  votes: Record<string, User>;
   votesVisible: boolean;
   username: string;
   open: boolean;
