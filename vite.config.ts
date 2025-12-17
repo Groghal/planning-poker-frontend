@@ -9,11 +9,11 @@ export default defineConfig({
     strictPort: false,
     proxy: {
       '/planning-poker-frontend/api/': {
-        target: 'http://localhost:3222/',
+        target: 'http://localhost:3223/',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/planning-poker-frontend\/api/, '/api'),
         secure: false,
-        ws: false,
+        ws: true,
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
             console.log('proxy error', err);
