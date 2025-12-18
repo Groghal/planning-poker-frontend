@@ -1,16 +1,22 @@
 import * as signalR from "@microsoft/signalr";
 import { API_CONFIG } from '../config';
 
+// Allows storing callbacks with specific parameter types (e.g. (a: string) => void)
+// while still calling them through a generic dispatcher.
+type BivariantEventCallback = { bivarianceHack(...args: unknown[]): void }["bivarianceHack"];
+
 class SignalRService {
     private connection: signalR.HubConnection | null = null;
-    private callbacks: { [key: string]: Function[] } = {};
+    private callbacks: Record<string, BivariantEventCallback[]> = {};
     private currentRoomId: string | null = null;
     private intentionalStop = false;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor() {
+        const isDev = typeof import.meta !== 'undefined' && !!import.meta.env?.DEV;
         this.connection = new signalR.HubConnectionBuilder()
             .withUrl(`${API_CONFIG.API_BASE_PATH}/hubs/poker`)
+            .configureLogging(isDev ? signalR.LogLevel.Information : signalR.LogLevel.Warning)
             // Use explicit delays so we retry quickly at first, then back off.
             .withAutomaticReconnect([0, 2000, 10000, 30000])
             .build();
@@ -20,11 +26,11 @@ class SignalRService {
         this.connection.serverTimeoutInMilliseconds = 120_000; // default ~30s
         this.connection.keepAliveIntervalInMilliseconds = 20_000; // default ~15s
 
-        this.connection.on("ReceiveSmile", (fromUsername: string, toUsername: string, emoji: string) => {
-            this.trigger("ReceiveSmile", fromUsername, toUsername, emoji);
+        this.connection.on("ReceiveSmile", (toUsername: string, emoji: string) => {
+            this.trigger("ReceiveSmile", toUsername, emoji);
         });
 
-        this.connection.onreconnecting((err) => {
+        this.connection.onreconnecting(() => {
             // Handlers stay registered, but room membership might need to be re-established after reconnect.
             // (JoinRoom is done in onreconnected)
             // console.debug("SignalR reconnecting...", err);
@@ -53,7 +59,7 @@ class SignalRService {
             }, 5000);
 
             if (err) {
-                // console.warn("SignalR closed", err);
+                console.warn("SignalR closed", err);
             }
         });
     }
@@ -97,27 +103,35 @@ class SignalRService {
         }
     }
 
-    public async sendSmile(roomId: string, toUsername: string, fromUsername: string, emoji: string) {
-        if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
-            await this.connection.invoke("SendSmile", roomId, toUsername, fromUsername, emoji);
+    public async sendSmile(roomId: string, toUsername: string, emoji: string) {
+        if (!this.connection) throw new Error("SignalR connection is not initialized");
+
+        // Make this resilient: if we're disconnected (or were reconnected but not re-joined),
+        // connect() will start the transport if needed and invoke JoinRoom(roomId).
+        await this.connect(roomId);
+
+        if (this.connection.state !== signalR.HubConnectionState.Connected) {
+            throw new Error(`SignalR not connected (state: ${this.connection.state})`);
         }
+
+        await this.connection.invoke("SendSmile", roomId, toUsername, emoji);
     }
 
-    public on(event: string, callback: Function) {
+    public on(event: string, callback: BivariantEventCallback) {
         if (!this.callbacks[event]) {
             this.callbacks[event] = [];
         }
         this.callbacks[event].push(callback);
     }
 
-    public off(event: string, callback: Function) {
+    public off(event: string, callback: BivariantEventCallback) {
         if (!this.callbacks[event]) {
             return;
         }
         this.callbacks[event] = this.callbacks[event].filter(cb => cb !== callback);
     }
 
-    private trigger(event: string, ...args: any[]) {
+    private trigger(event: string, ...args: unknown[]) {
         if (this.callbacks[event]) {
             this.callbacks[event].forEach(cb => cb(...args));
         }

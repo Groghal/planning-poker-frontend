@@ -1,9 +1,12 @@
 import React from 'react';
-import { Box, Typography, Paper, Button, IconButton, Popover, Tooltip } from '@mui/material';
+import { Box, Typography, Paper, Button, IconButton, Popover, Tooltip, TextField } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import HelpIcon from '@mui/icons-material/Help';
+import { Grid, getScrollbarSize, type CellComponentProps } from 'react-window';
+import { loadEmojiData } from './emojiData';
+import type { EmojiEntry } from './emojiTypes';
 import { User } from '../../types/room';
 
 interface UserListProps {
@@ -195,30 +198,57 @@ const ThrownSmile: React.FC<{
 };
 
 const DEFAULT_SMILE = '😃';
-const SMILE_GRID: string[] = [
-  // Faces (smiles / expressions)
-  '😀','😃','😄','😁','😆','😅','🤣','😂','🥲','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','☺️','😚','😙',
-  '😋','😛','😜','🤪','😝','🤑','🤗','🫠','🫡','🤭','🫢','🫣','🤫','🤔','🤐','🤨','😐','😑','😶','😶‍🌫️','🫥','😏','😒','🙄','😬','😮‍💨',
-  '🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','😵‍💫','🤯','🤠','🥳',
-  '😎','🥸','🤓','🧐','😕','🫤','😟','🙁','☹️','😮','😯','😲','😳','🥺','🥹','😦','😧','😨','😰','😥','😢','😭',
-  '😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','☠️','👻','👽','🤖','🤡','💩',
 
-  // Cat faces
-  '😺','😸','😹','😻','😼','😽','🙀','😿','😾',
+const EMOJI_COLS = 10;
+const EMOJI_CELL = 32;
+const EMOJI_GAP = 4;
+// Match react-window Grid math exactly: width = columnCount * columnWidth
+// (avoids a tiny mismatch that can cause a horizontal scrollbar).
+const EMOJI_GRID_WIDTH = EMOJI_COLS * (EMOJI_CELL + EMOJI_GAP);
+const EMOJI_GRID_HEIGHT = 150;
+const EMOJI_SCROLLBAR_W = typeof document !== 'undefined' ? getScrollbarSize() : 16;
+const EMOJI_VIEWPORT_WIDTH = EMOJI_GRID_WIDTH + EMOJI_SCROLLBAR_W;
 
-  // Monkeys
-  '🙈','🙉','🙊',
+type EmojiGridData = {
+  items: EmojiEntry[];
+  selected: string;
+  onPick: (emoji: string) => void;
+};
 
-  // Quick reactions (still handy to "throw")
-  '👍','👎','👏','🙌','🤝','🫶','💪','🔥','✨','💫','💥','💯','🎉','🎊',
+const EmojiCell = ({ columnIndex, rowIndex, style, items, selected, onPick }: CellComponentProps<EmojiGridData>): React.ReactElement => {
+  const idx = rowIndex * EMOJI_COLS + columnIndex;
+  const entry = items[idx];
+  if (!entry) return <div style={style} />;
 
-  // Hearts
-  '💖','💘','💝','💗','💓','💕','💞','💟','❣️','❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','❤️‍🔥','❤️‍🩹'
-];
+  const isSelected = entry.unicode === selected;
+
+  return (
+    <div style={style}>
+      <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start' }}>
+        <IconButton
+          size="small"
+          onClick={() => onPick(entry.unicode)}
+          title={entry.title} // native tooltip to avoid Popper cost on hover
+          aria-label={entry.label}
+          sx={{
+            width: EMOJI_CELL,
+            height: EMOJI_CELL,
+            borderRadius: 1,
+            border: isSelected ? '1px solid rgba(46, 204, 113, 0.9)' : '1px solid rgba(255,255,255,0.08)',
+            backgroundColor: isSelected ? 'rgba(46, 204, 113, 0.15)' : 'transparent',
+            '&:hover': { backgroundColor: 'rgba(255,255,255,0.08)' },
+          }}
+        >
+          <Box sx={{ fontSize: '1.05rem', lineHeight: 1 }}>{entry.unicode}</Box>
+        </IconButton>
+      </Box>
+    </div>
+  );
+};
 
 export const UserList: React.FC<UserListProps & {
   onSendSmile?: (toUsername: string, emoji: string) => void;
-  incomingSmile?: { from: string; to: string; emoji: string; id: number } | null;
+  incomingSmile?: { to: string; emoji: string; id: number } | null;
 }> = ({
   votes,
   votesVisible,
@@ -227,12 +257,74 @@ export const UserList: React.FC<UserListProps & {
   onSendSmile,
   incomingSmile
 }) => {
-    const [activeSmiles, setActiveSmiles] = React.useState<Array<{ id: number, from: string, to: string, emoji: string, startTime: number }>>([]);
+    const [activeSmiles, setActiveSmiles] = React.useState<Array<{ id: number, to: string, emoji: string, startTime: number }>>([]);
     const [selectedEmoji, setSelectedEmoji] = React.useState<string>(() => {
       return localStorage.getItem('planning-poker-selected-emoji') || DEFAULT_SMILE;
     });
     const [pickerAnchor, setPickerAnchor] = React.useState<HTMLElement | null>(null);
     const [pickerForUser, setPickerForUser] = React.useState<string | null>(null);
+    const [emojiSearch, setEmojiSearch] = React.useState<string>('');
+    const emojiSearchInputRef = React.useRef<HTMLInputElement | null>(null);
+    const [allEmojis, setAllEmojis] = React.useState<EmojiEntry[] | null>(null);
+
+    // Preload emoji data in the background so opening the popup doesn't block the UI thread.
+    React.useEffect(() => {
+      let cancelled = false;
+      const run = () => {
+        loadEmojiData().then((data) => {
+          if (cancelled) return;
+          setAllEmojis(data);
+        }).catch(() => {
+          // ignore: we can retry on popup open
+        });
+      };
+
+      // Prefer idle time so we don't jank normal interactions.
+      type RequestIdleCallbackHandle = number;
+      type RequestIdleCallbackOptions = { timeout?: number };
+      type RequestIdleCallback = (cb: () => void, opts?: RequestIdleCallbackOptions) => RequestIdleCallbackHandle;
+      type CancelIdleCallback = (id: RequestIdleCallbackHandle) => void;
+
+      const ric = (window as unknown as { requestIdleCallback?: RequestIdleCallback }).requestIdleCallback;
+      const cic = (window as unknown as { cancelIdleCallback?: CancelIdleCallback }).cancelIdleCallback;
+      if (ric) {
+        const id = ric(run, { timeout: 1500 });
+        return () => { cancelled = true; cic?.(id); };
+      }
+
+      const t = window.setTimeout(run, 250);
+      return () => { cancelled = true; window.clearTimeout(t); };
+    }, []);
+
+    // Ensure data is loaded if user opens quickly.
+    React.useEffect(() => {
+      if (!pickerAnchor) return;
+      if (allEmojis) return;
+      let cancelled = false;
+      loadEmojiData().then((data) => {
+        if (cancelled) return;
+        setAllEmojis(data);
+      }).catch(() => {});
+      return () => { cancelled = true; };
+    }, [pickerAnchor, allEmojis]);
+
+    const deferredEmojiSearch = React.useDeferredValue(emojiSearch);
+    const filteredEmojis = React.useMemo(() => {
+      const base = allEmojis ?? [];
+      const q = deferredEmojiSearch.trim().toLowerCase();
+      if (!q) return base;
+
+      const qHex = q
+        .replace(/^u\+/, '')
+        .replace(/[^0-9a-f]/g, '');
+
+      return base.filter((e) => {
+        if (e.unicode.includes(q)) return true; // paste emoji to match
+        if (e.search.includes(q)) return true; // name/tags
+        if (qHex && e.hexcode.replace(/-/g, '').toLowerCase().includes(qHex)) return true; // hexcode
+        return false;
+      });
+    }, [allEmojis, deferredEmojiSearch]);
 
     // Handle incoming new smiles
     React.useEffect(() => {
@@ -537,6 +629,17 @@ export const UserList: React.FC<UserListProps & {
           onClose={() => {
             setPickerAnchor(null);
             setPickerForUser(null);
+            setEmojiSearch('');
+          }}
+          // Make typing work immediately after the popup opens.
+          TransitionProps={{
+            onEntered: () => {
+              // Defer one tick to ensure the input is mounted + visible.
+              setTimeout(() => {
+                emojiSearchInputRef.current?.focus();
+                emojiSearchInputRef.current?.select();
+              }, 0);
+            }
           }}
           anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
           transformOrigin={{ vertical: 'top', horizontal: 'center' }}
@@ -546,43 +649,77 @@ export const UserList: React.FC<UserListProps & {
               backgroundColor: '#0f1720',
               border: '1px solid rgba(255,255,255,0.12)',
               boxShadow: '0 20px 50px rgba(0,0,0,0.45)',
+              maxHeight: 340,
+              overflow: 'hidden',
             }
           }}
         >
           <Box sx={{ px: 1, pb: 0.5, color: '#ecf0f1', fontSize: '0.8rem', opacity: 0.85 }}>
             {pickerForUser ? `Pick an emoji to throw at ${pickerForUser}` : 'Pick an emoji'}
           </Box>
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(10, 32px)',
-              gap: 0.5,
-              p: 0.5,
-              maxWidth: 10 * 32 + 9 * 4,
-            }}
-          >
-            {SMILE_GRID.map((emo) => (
-              <IconButton
-                key={emo}
-                size="small"
-                onClick={() => {
-                  setSelectedEmoji(emo);
-                  setPickerAnchor(null);
-                  setPickerForUser(null);
-                }}
-                sx={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 1,
-                  border: emo === selectedEmoji ? '1px solid rgba(46, 204, 113, 0.9)' : '1px solid rgba(255,255,255,0.08)',
-                  backgroundColor: emo === selectedEmoji ? 'rgba(46, 204, 113, 0.15)' : 'transparent',
-                  '&:hover': { backgroundColor: 'rgba(255,255,255,0.08)' },
-                }}
-              >
-                <Box sx={{ fontSize: '1.05rem', lineHeight: 1 }}>{emo}</Box>
-              </IconButton>
-            ))}
+          <Box sx={{ px: 1, pb: 0.75, color: 'rgba(236,240,241,0.65)', fontSize: '0.75rem' }}>
+            {filteredEmojis.length.toLocaleString()} emojis
           </Box>
+          <TextField
+            value={emojiSearch}
+            onChange={(e) => setEmojiSearch(e.target.value)}
+            placeholder="Search (e.g. 'rocket', paste 😊, or type U+1F680)"
+            size="small"
+            fullWidth
+            inputRef={emojiSearchInputRef}
+            sx={{
+              px: 1,
+              pb: 1,
+              '& .MuiInputBase-root': {
+                color: '#ecf0f1',
+                backgroundColor: 'rgba(255,255,255,0.06)',
+                borderRadius: 1,
+              },
+              '& .MuiOutlinedInput-notchedOutline': {
+                borderColor: 'rgba(255,255,255,0.18)',
+              },
+              '&:hover .MuiOutlinedInput-notchedOutline': {
+                borderColor: 'rgba(255,255,255,0.28)',
+              },
+              '& .MuiInputBase-input::placeholder': {
+                color: 'rgba(236,240,241,0.55)',
+                opacity: 1,
+              },
+            }}
+          />
+          {filteredEmojis.length === 0 ? (
+            <Box sx={{ px: 1, py: 1, color: 'rgba(236,240,241,0.7)', fontSize: '0.85rem' }}>
+              No matches. Try searching by name (e.g. “rocket”), pasting an emoji, or typing a codepoint like{' '}
+              <Box component="span" sx={{ fontFamily: 'monospace' }}>U+1F600</Box>.
+            </Box>
+          ) : (
+            <Box sx={{ px: 1, pb: 0.5 }}>
+              <Grid
+                columnCount={EMOJI_COLS}
+                columnWidth={EMOJI_CELL + EMOJI_GAP}
+                rowCount={Math.ceil(filteredEmojis.length / EMOJI_COLS)}
+                rowHeight={EMOJI_CELL + EMOJI_GAP}
+                defaultWidth={EMOJI_VIEWPORT_WIDTH}
+                defaultHeight={EMOJI_GRID_HEIGHT}
+                overscanCount={2}
+                cellComponent={EmojiCell}
+                cellProps={{
+                  items: filteredEmojis,
+                  selected: selectedEmoji,
+                  onPick: (emo: string) => {
+                    setSelectedEmoji(emo);
+                    setPickerAnchor(null);
+                    setPickerForUser(null);
+                    setEmojiSearch('');
+                  }
+                }}
+                // Constrain the viewport so the popover doesn't grow to full content height.
+                style={{ width: EMOJI_VIEWPORT_WIDTH, height: EMOJI_GRID_HEIGHT, overflowX: 'hidden' }}
+              >
+                {null}
+              </Grid>
+            </Box>
+          )}
         </Popover>
       </Box>
     );

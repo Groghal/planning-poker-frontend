@@ -15,14 +15,17 @@
     "@microsoft/signalr": "^10.0.0",
     "@mui/icons-material": "^6.4.7",
     "@mui/material": "^6.4.7",
+    "emojibase-data": "^17.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.3.0"
+    "react-router-dom": "^7.3.0",
+    "react-window": "^2.2.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
+    "@types/react-window": "^1.8.8",
     "@vitejs/plugin-react": "^4.3.4",
     "eslint": "^9.21.0",
     "eslint-plugin-react-hooks": "^5.1.0",

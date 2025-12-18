@@ -62,7 +62,7 @@ const Room: React.FC = () => {
   const [localSelectedVote, setLocalSelectedVote] = useState<string | null>(null);
   const [roomNotFoundAdminPassword, setRoomNotFoundAdminPassword] = useState<string>('');
   const [roomNotFoundError, setRoomNotFoundError] = useState<string | null>(null);
-  const [incomingSmile, setIncomingSmile] = useState<{ from: string; to: string; emoji: string; id: number } | null>(null);
+  const [incomingSmile, setIncomingSmile] = useState<{ to: string; emoji: string; id: number } | null>(null);
 
   // Set up SignalR
   useEffect(() => {
@@ -79,8 +79,8 @@ const Room: React.FC = () => {
 
     connectSignalR();
 
-    const handleReceiveSmile = (from: string, to: string, emoji: string) => {
-      setIncomingSmile({ from, to, emoji, id: Date.now() });
+    const handleReceiveSmile = (to: string, emoji: string) => {
+      setIncomingSmile({ to, emoji, id: Date.now() });
     };
 
     signalRService.on("ReceiveSmile", handleReceiveSmile);
@@ -96,7 +96,7 @@ const Room: React.FC = () => {
     try {
       // Optimistically show animation? No, wait for signal for consistency or just do it?
       // Let's rely on the signal back from server so we see what others see.
-      await signalRService.sendSmile(roomId, toUsername, state.username, emoji);
+      await signalRService.sendSmile(roomId, toUsername, emoji);
     } catch (err) {
       console.error("Failed to send smile", err);
     }
