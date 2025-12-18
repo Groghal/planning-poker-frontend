@@ -77,25 +77,70 @@ const ThrownSmile: React.FC<{
         return u * u * p0 + 2 * u * t * p1 + t * t * p2;
       };
 
-      // Sample a quadratic bezier so the path is smooth (not start->mid->end straight segments).
-      const ts = prefersReducedMotion
-        ? [0, 0.25, 0.5, 0.75, 1]
-        : [0, 0.12, 0.24, 0.36, 0.5, 0.64, 0.78, 0.9, 1];
+      // Timing breakdown (by animation progress):
+      // - 0..IMPACT_AT: fly to the card
+      // - IMPACT_AT..FALL_START: very quick "hit" squash (no noticeable pause)
+      // - FALL_START..FADE_START: fall down (like it actually hit the card)
+      // - FADE_START..1: fade out only after the fall is clearly visible
+      const IMPACT_AT = prefersReducedMotion ? 0.7 : 0.76;
+      const IMPACT_WINDOW = prefersReducedMotion ? 0.01 : 0.02;
+      const FALL_START = Math.min(0.92, IMPACT_AT + IMPACT_WINDOW);
+      const FADE_START = prefersReducedMotion ? 0.9 : 0.95;
+      const FALL_DISTANCE = prefersReducedMotion ? 120 : 230;
 
-      const keyframes = ts.map((t) => {
+      // Sample a quadratic bezier so the flight path is smooth (not start->mid->end straight segments).
+      const flightOffsets = prefersReducedMotion
+        ? [0, 0.22, 0.45, 0.62, IMPACT_AT]
+        : [0, 0.1, 0.2, 0.32, 0.44, 0.56, 0.66, 0.72, IMPACT_AT];
+
+      const flightKeyframes = flightOffsets.map((offset) => {
+        const t = clamp01(offset / IMPACT_AT); // normalize so we reach the target exactly at IMPACT_AT
         const x = quad(startX, midX, endX, t);
         const y = quad(startY, midY, endY, t);
 
-        const scale =
-          t <= 0.5 ? lerp(1.1, 1.25, t / 0.5) : lerp(1.25, 0.15, (t - 0.5) / 0.5);
-        const rotate = 360 * t;
+        // Stay readable at the end; don't shrink into nothing.
+        const scale = t <= 0.6 ? lerp(1.08, 1.22, t / 0.6) : lerp(1.22, 1.0, (t - 0.6) / 0.4);
+        const rotate = lerp(0, 520, t);
 
-        const fadeIn = clamp01(t / 0.08);
-        const fadeOut = clamp01((1 - t) / 0.15);
-        const opacity = Math.min(fadeIn, fadeOut);
+        const opacity = clamp01(offset / 0.06); // quick fade-in only
 
-        return { transform: makeTransform(x, y, scale, rotate), opacity, offset: t };
+        return { transform: makeTransform(x, y, scale, rotate), opacity, offset };
       });
+
+      // Impact + fall + fade
+      // Add some randomness so the drop doesn't look synthetic (always same X/rotation).
+      const fallDriftX = jitter(prefersReducedMotion ? 18 : 85);
+      const fallDriftX2 = fallDriftX + jitter(prefersReducedMotion ? 10 : 35);
+      const impactRotate = 540 + jitter(prefersReducedMotion ? 10 : 45);
+      const fallRotate1 = impactRotate + 25 + jitter(prefersReducedMotion ? 10 : 35);
+      const fallRotate2 = fallRotate1 + 60 + jitter(prefersReducedMotion ? 15 : 70);
+
+      const impactKick = prefersReducedMotion ? 4 : 10;
+
+      const impactKeyframes: Keyframe[] = [
+        // impact moment (arrive)
+        { transform: makeTransform(endX, endY, 1.08, impactRotate), opacity: 1, offset: IMPACT_AT },
+        // quick "hit" squash + tiny sideways kick (no pause)
+        {
+          transform: makeTransform(endX + impactKick * 0.35, endY + impactKick, 0.96, fallRotate1),
+          opacity: 1,
+          offset: IMPACT_AT + IMPACT_WINDOW * 0.45
+        },
+        // immediately transition into the fall
+        { transform: makeTransform(endX + impactKick * 0.2, endY + impactKick * 0.4, 1.01, fallRotate1), opacity: 1, offset: FALL_START },
+        // start falling
+        {
+          transform: makeTransform(endX + fallDriftX * 0.35, endY + FALL_DISTANCE * 0.5, 0.98, fallRotate1),
+          opacity: 1,
+          offset: lerp(FALL_START, FADE_START, 0.5)
+        },
+        // end of fall (still fully visible)
+        { transform: makeTransform(endX + fallDriftX2, endY + FALL_DISTANCE, 0.92, fallRotate2), opacity: 1, offset: FADE_START },
+        // now fade out after the fall
+        { transform: makeTransform(endX + fallDriftX2 + jitter(prefersReducedMotion ? 6 : 18), endY + FALL_DISTANCE + 28, 0.9, fallRotate2 + 10), opacity: 0, offset: 1 },
+      ];
+
+      const keyframes: Keyframe[] = [...flightKeyframes, ...impactKeyframes];
 
       animation = el.animate(keyframes, { duration, easing, fill: 'forwards' });
     };

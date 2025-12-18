@@ -8,7 +8,7 @@ export default defineConfig({
         strictPort: false,
         proxy: {
             '/planning-poker-frontend/api/': {
-                target: 'http://localhost:3223/',
+                target: 'http://localhost:3222/',
                 changeOrigin: true,
                 rewrite: function (path) { return path.replace(/^\/planning-poker-frontend\/api/, '/api'); },
                 secure: false,
